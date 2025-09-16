@@ -23,6 +23,7 @@ interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, fullName: string, role?: string) => Promise<{ error: any }>;
+  createUser: (email: string, password: string, userData: any) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   isAdmin: boolean;
   isLecturer: boolean;
@@ -45,184 +46,103 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
-  
-  // Track ongoing profile fetch to prevent duplicates
-  const fetchingProfile = React.useRef<Promise<any> | null>(null);
 
   const fetchProfile = async (userId: string) => {
-    // If we're already fetching this user's profile, return the existing promise
-    if (fetchingProfile.current) {
-      console.log('Profile fetch already in progress, waiting...');
-      return await fetchingProfile.current;
-    }
+    try {
+      console.log('Fetching profile for user:', userId);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
 
-    // Create new fetch promise
-    const fetchPromise = (async () => {
-      try {
-        console.log('Fetching profile for user ID:', userId);
-        
-        // Create a timeout promise
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Profile fetch timeout after 10 seconds')), 10000);
-        });
-        
-        // Create the fetch promise
-        const fetchPromise = supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .single();
-        
-        console.log('Starting profile query...');
-        
-        // Race the promises
-        const result = await Promise.race([fetchPromise, timeoutPromise]);
-        const { data, error } = result as any;
-        
-        console.log('Profile query completed:', { data: !!data, error: !!error });
-
-        if (error) {
-          if (error.code === 'PGRST116') {
-            console.log('Profile not found, user may need to complete setup');
-          } else {
-            console.error('Error fetching profile:', error);
-          }
-          setProfile(null);
-          return null;
-        } else {
-          console.log('Profile fetched successfully:', data);
-          setProfile(data);
-          return data;
+      if (error) {
+        if (error.code !== 'PGRST116') { // Not found error
+          console.error('Error fetching profile:', error);
         }
-      } catch (error) {
-        console.error('Error fetching profile:', error);
-        
-        // If it's a timeout, set profile to null but don't block the app
-        if (error instanceof Error && error.message.includes('timeout')) {
-          console.warn('Profile fetch timed out, continuing without profile');
-          setProfile(null);
-        }
-        
-        return null;
-      } finally {
-        // Clear the fetching reference when done
-        fetchingProfile.current = null;
+        setProfile(null);
+        return;
       }
-    })();
-
-    // Store the promise reference
-    fetchingProfile.current = fetchPromise;
-    
-    return await fetchPromise;
+      
+      console.log('Profile fetched successfully:', data);
+      setProfile(data);
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      setProfile(null);
+    }
   };
 
   useEffect(() => {
     let mounted = true;
-    let initialLoadComplete = false;
 
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!mounted) return;
-
-        console.log('Auth state changed:', event, !!session);
-        
-        // Skip token refresh events to prevent unnecessary calls
-        if (event === 'TOKEN_REFRESHED') {
-          setSession(session);
-          return;
-        }
-
-        // Skip INITIAL_SESSION if we've already handled the initial load
-        if (event === 'INITIAL_SESSION' && initialLoadComplete) {
-          return;
-        }
-
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
-          console.log('Calling fetchProfile from auth state change');
-          await fetchProfile(session.user.id);
-          console.log('fetchProfile completed from auth state change');
-        } else if (!session || event === 'SIGNED_OUT') {
-          setProfile(null);
-        }
-
-        // Mark initial load as complete after handling INITIAL_SESSION
-        if (event === 'INITIAL_SESSION') {
-          initialLoadComplete = true;
-          console.log('Setting loading to false from INITIAL_SESSION');
-          setLoading(false);
-        } else if (event === 'SIGNED_IN' && initialLoadComplete) {
-          console.log('Setting loading to false from SIGNED_IN after initial load');
-          setLoading(false);
-        }
-      }
-    );
-
-    // Check for existing session on mount
+    // Initialize session first
     const initializeAuth = async () => {
       try {
         console.log('Initializing auth...');
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (!mounted) return;
-
+        
         if (error) {
-          console.error('Error getting session:', error);
-          setSession(null);
-          setUser(null);
-          setProfile(null);
-          setLoading(false);
-          return;
+          console.warn('Session initialization error:', error);
         }
-
-        console.log('Initial session check:', !!session);
         
-        // If no session, we're done
-        if (!session) {
-          setSession(null);
-          setUser(null);
-          setProfile(null);
-          setLoading(false);
-          initialLoadComplete = true;
-          return;
-        }
-
-        // Set session and user
+        console.log('Initial session:', !!session);
         setSession(session);
-        setUser(session.user);
+        setUser(session?.user ?? null);
         
-        // Fetch profile
-        console.log('Fetching profile for user:', session.user.email);
-        await fetchProfile(session.user.id);
-        console.log('Profile fetch completed in initialization');
+        if (session?.user) {
+          await fetchProfile(session.user.id);
+        }
         
-        // Mark as complete
-        initialLoadComplete = true;
+        console.log('Auth initialization complete, setting loading to false');
         setLoading(false);
-        console.log('Auth initialization complete');
         
       } catch (error) {
-        console.error('Error initializing auth:', error);
+        console.warn('Auth initialization failed:', error);
         if (mounted) {
-          setSession(null);
-          setUser(null);
-          setProfile(null);
           setLoading(false);
-          initialLoadComplete = true;
         }
       }
     };
 
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!mounted) return;
+
+        console.log('Auth state change:', event, session?.user?.email);
+        
+        // Skip token refresh events to prevent unnecessary calls
+        if (event === 'TOKEN_REFRESHED') {
+          setSession(session);
+          return;
+        }
+        
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          await fetchProfile(session.user.id);
+        } else {
+          setProfile(null);
+        }
+        
+        // Only set loading to false for sign in/out events after initial load
+        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+          setLoading(false);
+        }
+      }
+    );
+
+    // Initialize auth
     initializeAuth();
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, []); // Empty dependency array - only run once
 
   const signIn = async (email: string, password: string) => {
     try {
@@ -240,7 +160,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         setLoading(false);
       }
-      // Don't set loading to false here - let the auth state change handle it
+      // Loading will be set to false by the auth state change listener
       
       return { error };
     } catch (error: any) {
@@ -294,6 +214,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const createUser = async (email: string, password: string, userData: any) => {
+    try {
+      const response = await fetch(`https://btkbqkyfdmbwboutvxda.supabase.co/functions/v1/create-user`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ0a2Jxa3lmZG1id2JvdXR2eGRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYxNTE1MTAsImV4cCI6MjA3MTcyNzUxMH0.jEzHAvbTJMp3dqSVK-p2rt8vnRHNdAH2CGhUqBWZWQk`,
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          userData
+        }),
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create user');
+      }
+      
+      return { error: null };
+    } catch (error: any) {
+      return { error };
+    }
+  };
+
   const signOut = async () => {
     try {
       setLoading(true);
@@ -308,9 +255,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         description: error.message,
         variant: "destructive",
       });
-    } finally {
-      setLoading(false);
     }
+    // Loading will be set to false by the auth state change listener
   };
 
   const isAdmin = profile?.role === 'admin';
@@ -324,6 +270,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     loading,
     signIn,
     signUp,
+    createUser,
     signOut,
     isAdmin,
     isLecturer,
