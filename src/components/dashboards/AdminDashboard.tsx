@@ -204,8 +204,8 @@ const AdminDashboard = () => {
           <TabsTrigger value="courses">Courses</TabsTrigger>
           <TabsTrigger value="students">Students</TabsTrigger>
           <TabsTrigger value="lecturers">Lecturers</TabsTrigger>
-          <TabsTrigger value="lectures">Lectures</TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          {/* <TabsTrigger value="lectures">Lectures</TabsTrigger> */}
+          {/* <TabsTrigger value="analytics">Analytics</TabsTrigger> */}
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">

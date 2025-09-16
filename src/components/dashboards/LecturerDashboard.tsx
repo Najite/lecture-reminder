@@ -238,10 +238,10 @@ const LecturerDashboard = () => {
                     <CardTitle>My Courses</CardTitle>
                     <CardDescription>Courses you're teaching</CardDescription>
                   </div>
-                  <Button variant="gradient" size="sm">
+                  {/* <Button variant="gradient" size="sm">
                     <Plus className="h-4 w-4 mr-2" />
                     New Course
-                  </Button>
+                  </Button> */}
                 </div>
               </CardHeader>
               <CardContent>
