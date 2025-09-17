@@ -21,6 +21,7 @@ interface AuthContextType {
   profile: Profile | null;
   session: Session | null;
   loading: boolean;
+  initialized: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, fullName: string, role?: string) => Promise<{ error: any }>;
   createUser: (email: string, password: string, userData: any) => Promise<{ error: any }>;
@@ -45,6 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<Profile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
   const { toast } = useToast();
 
   const fetchProfile = async (userId: string) => {
@@ -61,86 +63,134 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Error fetching profile:', error);
         }
         setProfile(null);
-        return;
+        return null;
       }
       
       console.log('Profile fetched successfully:', data);
       setProfile(data);
+      return data;
     } catch (error) {
       console.error('Error fetching profile:', error);
       setProfile(null);
+      return null;
     }
   };
 
   useEffect(() => {
     let mounted = true;
+    let authSubscription: any = null;
 
-    // Initialize session first
     const initializeAuth = async () => {
       try {
         console.log('Initializing auth...');
+        
+        // Get initial session
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (!mounted) return;
         
         if (error) {
           console.warn('Session initialization error:', error);
+          setLoading(false);
+          setInitialized(true);
+          return;
         }
         
         console.log('Initial session:', !!session);
+        
+        // Set session and user first
         setSession(session);
         setUser(session?.user ?? null);
         
+        // Fetch profile if user exists
         if (session?.user) {
           await fetchProfile(session.user.id);
         }
         
-        console.log('Auth initialization complete, setting loading to false');
+        // Mark as initialized
         setLoading(false);
+        setInitialized(true);
+        
+        console.log('Auth initialization complete');
         
       } catch (error) {
         console.warn('Auth initialization failed:', error);
         if (mounted) {
           setLoading(false);
+          setInitialized(true);
         }
       }
     };
 
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!mounted) return;
+    // Set up auth state listener AFTER initialization
+    const setupAuthListener = () => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        async (event, session) => {
+          if (!mounted) return;
 
-        console.log('Auth state change:', event, session?.user?.email);
-        
-        // Skip token refresh events to prevent unnecessary calls
-        if (event === 'TOKEN_REFRESHED') {
-          setSession(session);
-          return;
+          console.log('Auth state change:', event, session?.user?.email);
+          
+          // Handle different auth events
+          switch (event) {
+            case 'SIGNED_IN':
+              setSession(session);
+              setUser(session?.user ?? null);
+              if (session?.user) {
+                await fetchProfile(session.user.id);
+              }
+              setLoading(false);
+              break;
+              
+            case 'SIGNED_OUT':
+              setSession(null);
+              setUser(null);
+              setProfile(null);
+              setLoading(false);
+              break;
+              
+            case 'TOKEN_REFRESHED':
+              // Just update session, don't refetch profile
+              setSession(session);
+              break;
+              
+            case 'PASSWORD_RECOVERY':
+            case 'USER_UPDATED':
+              setSession(session);
+              setUser(session?.user ?? null);
+              if (session?.user) {
+                await fetchProfile(session.user.id);
+              }
+              break;
+              
+            default:
+              // Handle any other events
+              setSession(session);
+              setUser(session?.user ?? null);
+              if (session?.user) {
+                await fetchProfile(session.user.id);
+              } else {
+                setProfile(null);
+              }
+              break;
+          }
         }
-        
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          await fetchProfile(session.user.id);
-        } else {
-          setProfile(null);
-        }
-        
-        // Only set loading to false for sign in/out events after initial load
-        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-          setLoading(false);
-        }
+      );
+      
+      authSubscription = subscription;
+    };
+
+    // Initialize auth first, then setup listener
+    initializeAuth().then(() => {
+      if (mounted) {
+        setupAuthListener();
       }
-    );
-
-    // Initialize auth
-    initializeAuth();
+    });
 
     return () => {
       mounted = false;
-      subscription.unsubscribe();
+      if (authSubscription) {
+        authSubscription.unsubscribe();
+      }
     };
   }, []); // Empty dependency array - only run once
 
@@ -159,10 +209,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           variant: "destructive",
         });
         setLoading(false);
+        return { error };
       }
-      // Loading will be set to false by the auth state change listener
       
-      return { error };
+      // Don't set loading to false here - let the auth state change handle it
+      return { error: null };
     } catch (error: any) {
       setLoading(false);
       toast({
@@ -244,19 +295,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     try {
       setLoading(true);
-      await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        toast({
+          title: "Error signing out",
+          description: error.message,
+          variant: "destructive",
+        });
+        setLoading(false);
+        return;
+      }
+      
       toast({
         title: "Signed out",
         description: "You have been successfully signed out.",
       });
+      
+      // Loading will be set to false by the auth state change listener
     } catch (error: any) {
+      setLoading(false);
       toast({
         title: "Error",
         description: error.message,
         variant: "destructive",
       });
     }
-    // Loading will be set to false by the auth state change listener
   };
 
   const isAdmin = profile?.role === 'admin';
@@ -268,6 +332,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     profile,
     session,
     loading,
+    initialized,
     signIn,
     signUp,
     createUser,

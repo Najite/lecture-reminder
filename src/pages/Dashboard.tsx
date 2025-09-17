@@ -5,9 +5,10 @@ import LecturerDashboard from '@/components/dashboards/LecturerDashboard';
 import StudentDashboard from '@/components/dashboards/StudentDashboard';
 
 const Dashboard = () => {
-  const { profile, isAdmin, isLecturer, isStudent } = useAuth();
+  const { profile, loading, initialized, isAdmin, isLecturer, isStudent } = useAuth();
 
-  if (!profile) {
+  // Show loading while auth is initializing or profile is loading
+  if (!initialized || loading || !profile) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -15,6 +16,7 @@ const Dashboard = () => {
     );
   }
 
+  // Render appropriate dashboard based on role
   if (isAdmin) {
     return <AdminDashboard />;
   }
@@ -27,9 +29,13 @@ const Dashboard = () => {
     return <StudentDashboard />;
   }
 
+  // Fallback for unknown or missing role
   return (
     <div className="min-h-screen flex items-center justify-center">
-      <p>Unknown role</p>
+      <div className="text-center">
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Role Not Recognized</h1>
+        <p className="text-gray-600">Your account role is not recognized. Please contact support.</p>
+      </div>
     </div>
   );
 };
