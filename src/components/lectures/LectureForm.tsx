@@ -19,16 +19,50 @@ interface LectureFormProps {
   onSuccess?: () => void;
 }
 
+const LECTURE_TYPES = [
+  'Introduction',
+  'Theory Session',
+  'Practical Session',
+  'Lab Session',
+  'Tutorial',
+  'Workshop',
+  'Review Session',
+  'Exam Preparation',
+  'Guest Lecture',
+  'Project Discussion',
+  'Case Study',
+  'Group Discussion',
+  'Presentation',
+  'Assessment',
+  'Revision Class'
+];
+
 const LectureForm: React.FC<LectureFormProps> = ({ onSuccess }) => {
   const { profile, isAdmin, isLecturer } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
+  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+  const [customTitle, setCustomTitle] = useState('');
+  const [useCustomTitle, setUseCustomTitle] = useState(false);
+
+  const getDefaultDateTime = () => {
+    const now = new Date();
+    now.setHours(now.getHours() + 1);
+    now.setMinutes(0);
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
   const [formData, setFormData] = useState({
     course_id: '',
     title: '',
     description: '',
-    scheduled_at: '',
+    scheduled_at: getDefaultDateTime(),
     duration_minutes: 60,
     location: '',
     meeting_url: ''
@@ -62,6 +96,34 @@ const LectureForm: React.FC<LectureFormProps> = ({ onSuccess }) => {
     }
   };
 
+  const handleCourseChange = (courseId: string) => {
+    const course = courses.find(c => c.id === courseId);
+    setSelectedCourse(course || null);
+    setFormData({ ...formData, course_id: courseId, title: '' });
+    setUseCustomTitle(false);
+    setCustomTitle('');
+  };
+
+  const handleLectureTypeChange = (type: string) => {
+    if (type === 'custom') {
+      setUseCustomTitle(true);
+      setFormData({ ...formData, title: customTitle });
+    } else {
+      setUseCustomTitle(false);
+      const title = selectedCourse
+        ? `${selectedCourse.course_code} - ${type}`
+        : type;
+      setFormData({ ...formData, title });
+    }
+  };
+
+  const handleCustomTitleChange = (value: string) => {
+    setCustomTitle(value);
+    if (useCustomTitle) {
+      setFormData({ ...formData, title: value });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -83,11 +145,14 @@ const LectureForm: React.FC<LectureFormProps> = ({ onSuccess }) => {
         course_id: '',
         title: '',
         description: '',
-        scheduled_at: '',
+        scheduled_at: getDefaultDateTime(),
         duration_minutes: 60,
         location: '',
         meeting_url: ''
       });
+      setSelectedCourse(null);
+      setCustomTitle('');
+      setUseCustomTitle(false);
 
       onSuccess?.();
     } catch (error: any) {
@@ -110,7 +175,7 @@ const LectureForm: React.FC<LectureFormProps> = ({ onSuccess }) => {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="course_id">Course</Label>
-            <Select value={formData.course_id} onValueChange={(value) => setFormData({ ...formData, course_id: value })}>
+            <Select value={formData.course_id} onValueChange={handleCourseChange}>
               <SelectTrigger>
                 <SelectValue placeholder="Select course" />
               </SelectTrigger>
@@ -125,14 +190,44 @@ const LectureForm: React.FC<LectureFormProps> = ({ onSuccess }) => {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="title">Lecture Title</Label>
-            <Input
-              id="title"
-              value={formData.title}
-              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              required
-            />
+            <Label htmlFor="lecture_type">Lecture Type</Label>
+            <Select
+              onValueChange={handleLectureTypeChange}
+              disabled={!formData.course_id}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={formData.course_id ? "Select lecture type" : "Select a course first"} />
+              </SelectTrigger>
+              <SelectContent>
+                {LECTURE_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
+                  </SelectItem>
+                ))}
+                <SelectItem value="custom">Custom Title</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
+
+          {useCustomTitle && (
+            <div className="space-y-2">
+              <Label htmlFor="custom_title">Custom Lecture Title</Label>
+              <Input
+                id="custom_title"
+                value={customTitle}
+                onChange={(e) => handleCustomTitleChange(e.target.value)}
+                placeholder="Enter custom title"
+                required
+              />
+            </div>
+          )}
+
+          {!useCustomTitle && formData.title && (
+            <div className="p-3 bg-muted rounded-md">
+              <p className="text-sm font-medium">Lecture Title:</p>
+              <p className="text-sm text-muted-foreground">{formData.title}</p>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="description">Description</Label>
