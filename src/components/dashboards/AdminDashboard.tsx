@@ -13,17 +13,7 @@ import StudentForm from '@/components/students/StudentForm';
 import LecturerForm from '@/components/lecturers/LecturerForm';
 import LectureForm from '@/components/lectures/LectureForm';
 import LectureList from '@/components/lectures/LectureList';
-import { 
-  Users, 
-  BookOpen, 
-  Calendar, 
-  TrendingUp,
-  UserPlus,
-  Plus,
-  Eye,
-  Edit,
-  Trash2
-} from 'lucide-react';
+import { Users, BookOpen, Calendar, TrendingUp, UserPlus, Plus, Eye, CreditCard as Edit, Trash2 } from 'lucide-react';
 
 interface Stats {
   totalUsers: number;
